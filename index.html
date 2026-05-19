@@ -42,17 +42,20 @@
 
         const activeMarkers = {};
 
-        // 3. Dynamic sync engine
+// Dynamic sync engine
         async function syncSheetToMap() {
             console.log("Triggering fetch to Google Sheet...");
             try {
-                // Explicitly telling the browser to safely follow the Google Macro redirect chains
+                // Telling the browser to safely follow Google's macro redirect chain
                 const response = await fetch(APPS_SCRIPT_URL, { 
-                    method: "GET", 
-                    redirect: "follow" 
+                    method: "GET",
+                    mode: "cors"
                 });
                 
-                const ticketData = await response.json();
+                // Read as text first to bypass Google content-type restrictions
+                const textData = await response.text();
+                const ticketData = JSON.parse(textData);
+                
                 console.log("Data loaded successfully! Rows found:", ticketData.length);
                 
                 const currentBatchIds = new Set();
@@ -76,23 +79,17 @@
                         const existingMarker = activeMarkers[id];
                         const currentLatLng = existingMarker.getLatLng();
 
-                        // Shift position on the fly if coordinates change
                         if (currentLatLng.lat !== lat || currentLatLng.lng !== lng) {
-                            console.log(`Pin ${id} changed positions to:`, lat, lng);
                             existingMarker.setLatLng([lat, lng]);
                         }
                         existingMarker.setPopupContent(popupContent);
-
                     } else {
-                        // Drop new pin setup
                         const newMarker = L.marker([lat, lng]).addTo(map)
                             .bindPopup(popupContent);
-                        
                         activeMarkers[id] = newMarker;
                     }
                 });
 
-                // Clear out pins if their coordinates get cleared from the row
                 Object.keys(activeMarkers).forEach(id => {
                     if (!currentBatchIds.has(id)) {
                         map.removeLayer(activeMarkers[id]);
