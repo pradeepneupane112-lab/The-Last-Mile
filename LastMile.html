@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Last Mile Tracker Map</title>
+    
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css" />
+    
+    <style>
+        html, body {
+            margin: 0;
+            padding: 0;
+            height: 100%;
+            width: 100%;
+            overflow: hidden;
+        }
+        #map {
+            height: 100vh !important;
+            width: 100vw !important;
+            background-color: #e5e5e5;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="map"></div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
+
+    <script>
+        // 1. PASTE YOUR NEW DEPLOYED APPS SCRIPT URL HERE
+        const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbyNuTdcGQH3U5QT2i4img9dZoTMnH2Pa9tH5x6qgXZoHrz4iUM8FFQh-6Rbm0MWGsafew/exec";
+
+        // 2. Map configuration over Kathmandu
+        const map = L.map('map').setView([27.7172, 85.3240], 13);
+
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '© OpenStreetMap contributors',
+            maxZoom: 19
+        }).addTo(map);
+
+        const activeMarkers = {};
+
+        // 3. Dynamic sync engine
+        async function syncSheetToMap() {
+            console.log("Triggering fetch to Google Sheet...");
+            try {
+                // Explicitly telling the browser to safely follow the Google Macro redirect chains
+                const response = await fetch(APPS_SCRIPT_URL, { 
+                    method: "GET", 
+                    redirect: "follow" 
+                });
+                
+                const ticketData = await response.json();
+                console.log("Data loaded successfully! Rows found:", ticketData.length);
+                
+                const currentBatchIds = new Set();
+
+                ticketData.forEach(ticket => {
+                    const { id, lat, lng, odn, status, remarks } = ticket;
+                    
+                    if (!lat || !lng || isNaN(lat) || isNaN(lng)) return;
+
+                    currentBatchIds.add(id);
+
+                    const popupContent = `
+                        <div style="font-size: 13px; line-height: 1.4; min-width: 160px;">
+                            <strong>ODN:</strong> ${odn || 'N/A'}<br>
+                            <strong>Status:</strong> <span style="color: ${status === 'Open' ? '#d9534f' : '#5cb85c'}; font-weight: bold;">${status || 'N/A'}</span><br>
+                            <strong>Remarks:</strong> ${remarks || 'No remarks.'}
+                        </div>
+                    `;
+
+                    if (activeMarkers[id]) {
+                        const existingMarker = activeMarkers[id];
+                        const currentLatLng = existingMarker.getLatLng();
+
+                        // Shift position on the fly if coordinates change
+                        if (currentLatLng.lat !== lat || currentLatLng.lng !== lng) {
+                            console.log(`Pin ${id} changed positions to:`, lat, lng);
+                            existingMarker.setLatLng([lat, lng]);
+                        }
+                        existingMarker.setPopupContent(popupContent);
+
+                    } else {
+                        // Drop new pin setup
+                        const newMarker = L.marker([lat, lng]).addTo(map)
+                            .bindPopup(popupContent);
+                        
+                        activeMarkers[id] = newMarker;
+                    }
+                });
+
+                // Clear out pins if their coordinates get cleared from the row
+                Object.keys(activeMarkers).forEach(id => {
+                    if (!currentBatchIds.has(id)) {
+                        map.removeLayer(activeMarkers[id]);
+                        delete activeMarkers[id];
+                    }
+                });
+
+            } catch (error) {
+                console.error("Mapping fetch error details:", error);
+            }
+        }
+
+        // Run mapping fetch immediately
+        syncSheetToMap();
+
+        // Check for coordinates shifting automatically every 15 seconds
+        setInterval(syncSheetToMap, 15000);
+
+    </script>
+</body>
+</html>
